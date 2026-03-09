@@ -3,13 +3,46 @@ let activeName  = '';
 let activeImage = '';
 let activeLabel = '';
 
+function imgSrc(itemName, imageOverride) {
+    if (imageOverride && imageOverride.startsWith('http')) return imageOverride;
+    return `nui://ox_inventory/web/images/${itemName}.png`;
+}
+
+const RESOURCE_NAME = window.GetParentResourceName ? window.GetParentResourceName() : 's82chotroi';
+
+function nuiPost(endpoint, data) {
+    return fetch('https://' + RESOURCE_NAME + '/' + endpoint, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body:    JSON.stringify(data || {})
+    });
+}
+
+function setSelectedItem(name, image, label) {
+    activeName  = name;
+    activeImage = image;
+    activeLabel = label;
+
+    const imgRight = document.querySelector('.img-right');
+    const nameEl   = document.getElementById('selected-name');
+    const stockEl  = document.getElementById('stock-badge');
+
+    if (imgRight) imgRight.src        = imgSrc(name, image);
+    if (nameEl)   nameEl.textContent  = label || name;
+    if (stockEl)  stockEl.textContent = 'Tồn kho: ' + (inventory[name] || 0);
+
+    document.querySelectorAll('.item').forEach(el => {
+        el.classList.toggle('selected', el.getAttribute('data-name') === name);
+    });
+}
+
 const Sakura = (function() {
     const canvas    = document.getElementById('sakura-canvas');
     const ctx       = canvas.getContext('2d');
     const container = document.querySelector('.container');
 
-    let rafId    = null;  
-    let running  = false;
+    let rafId   = null;
+    let running = false;
 
     function resize() {
         canvas.width  = container.offsetWidth;
@@ -71,58 +104,21 @@ const Sakura = (function() {
     }
 
     return {
-        start() {
-            if (running) return;
-            running = true;
-            rafId   = requestAnimationFrame(animate);
-        },
-        stop() {
-            running = false;
-            if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
+        start() { if (running) return; running = true; rafId = requestAnimationFrame(animate); },
+        stop()  { running = false; if (rafId) { cancelAnimationFrame(rafId); rafId = null; } ctx.clearRect(0, 0, canvas.width, canvas.height); }
     };
 })();
 
-function imgSrc(itemName, imageOverride) {
-    if (imageOverride && imageOverride.startsWith('http')) return imageOverride;
-    return `nui://ox_inventory/web/images/${itemName}.png`;
-}
-
-function setSelectedItem(name, image, label) {
-    activeName  = name;
-    activeImage = image;
-    activeLabel = label;
-
-    const imgRight = document.querySelector('.img-right');
-    const nameEl   = document.getElementById('selected-name');
-    const stockEl  = document.getElementById('stock-badge');
-
-    if (imgRight) imgRight.src            = imgSrc(name, image);
-    if (nameEl)   nameEl.textContent      = label || name;
-    if (stockEl)  stockEl.textContent     = 'Tồn kho: ' + (inventory[name] || 0);
-
-    document.querySelectorAll('.item').forEach(el => {
-        el.classList.toggle('selected', el.getAttribute('data-name') === name);
-    });
-}
-
 window.addEventListener('message', (e) => {
-    const { type, data: msgData, item: msgItem, meta } = e.data;
+    const type = e.data.type;
 
- 
     if (type === 'open') {
         inventory = e.data.inventory || {};
 
-        const sellerCard = document.getElementById('seller-card');
-        const priceCard  = document.getElementById('price-card');
-        const grid       = document.getElementById('item-grid');
-
+        const grid = document.getElementById('item-grid');
         grid.innerHTML = '';
         activeName = activeImage = activeLabel = '';
-
-        const imgRight = document.querySelector('.img-right');
-        if (imgRight) imgRight.src = '';
+        document.querySelector('.img-right').src            = '';
         document.getElementById('selected-name').textContent = '— Chưa chọn —';
         document.getElementById('stock-badge').textContent   = 'Tồn kho: 0';
 
@@ -134,22 +130,18 @@ window.addEventListener('message', (e) => {
             div.setAttribute('data-image', item.image || '');
             div.setAttribute('data-label', item.Label || item.itemName);
             div.innerHTML = `
-                <img src="${imgSrc(item.itemName, item.image)}" alt="${item.Label}"
-                     onerror="this.style.opacity='0.3'">
+                <img src="${imgSrc(item.itemName, item.image)}" alt="${item.Label}" onerror="this.style.opacity='0.3'">
                 <span class="item-name">${item.Label}</span>
                 <span class="item-stock">x${count}</span>
             `;
-            div.addEventListener('click', () => {
-                setSelectedItem(item.itemName, item.image, item.Label);
-            });
+            div.addEventListener('click', () => setSelectedItem(item.itemName, item.image, item.Label));
             grid.appendChild(div);
         });
 
-        if (sellerCard) sellerCard.classList.add('active');
-        if (priceCard)  priceCard.classList.add('active');
+        document.getElementById('seller-card').classList.add('active');
+        document.getElementById('price-card').classList.add('active');
         Sakura.start();
 
-       
         if (e.data.items.length > 0) {
             const first = e.data.items[0];
             setSelectedItem(first.itemName, first.image, first.Label);
@@ -162,8 +154,17 @@ window.addEventListener('message', (e) => {
             if (el) el.classList.remove('active');
         });
         activeName = activeImage = activeLabel = '';
-        const input = document.getElementById('sell-input');
-        if (input) input.value = '';
+        document.getElementById('sell-input').value = '';
+        Sakura.stop();
+    }
+
+    else if (type === 'show-price') {
+        document.getElementById('popup-market').classList.add('active');
+        Sakura.start();
+    }
+
+    else if (type === 'hide-popup') {
+        document.getElementById('popup-market').classList.remove('active');
         Sakura.stop();
     }
 
@@ -175,12 +176,6 @@ window.addEventListener('message', (e) => {
     else if (type === 'update-price') {
         updatePriceRow(e.data.item, e.data.data, 'price-list');
         updatePriceRow(e.data.item, e.data.data, 'popup-list');
-    }
-
-    else if (type === 'show-price') {
-        const popup = document.getElementById('popup-market');
-        if (popup) popup.classList.add('active');
-        Sakura.start();
     }
 });
 
@@ -199,12 +194,9 @@ function renderPriceList(items, containerId) {
 function buildPriceRow(item) {
     const arrow = item.Status === 'up' ? '↑' : item.Status === 'down' ? '↓' : '—';
     return `
-        <img src="${imgSrc(item.itemName, item.image)}" alt="${item.Label}"
-             onerror="this.style.opacity='0.3'">
+        <img src="${imgSrc(item.itemName, item.image)}" alt="${item.Label}" onerror="this.style.opacity='0.3'">
         <span>${item.Label}</span>
-        <span class="price ${item.Status}">
-            $${item.Price.toLocaleString()} ${arrow}
-        </span>
+        <span class="price ${item.Status}">$${item.Price.toLocaleString()} ${arrow}</span>
     `;
 }
 
@@ -220,30 +212,19 @@ document.getElementById('btn-sell').addEventListener('click', () => {
     const input  = document.getElementById('sell-input');
     const amount = parseInt(input.value);
     if (!amount || amount <= 0) return;
-
-    navigator.sendBeacon('https://s82chotroi/action', JSON.stringify({
-        item:   activeName,
-        amount: amount
-    }));
+    nuiPost('action', { item: activeName, amount });
     input.value = '';
 });
 
 document.getElementById('btn-sell-all').addEventListener('click', () => {
     if (!activeName) return;
-    navigator.sendBeacon('https://s82chotroi/action-all', JSON.stringify({
-        item: activeName
-    }));
+    nuiPost('action-all', { item: activeName });
+});
+
+document.getElementById('seller-close').addEventListener('click', () => {
+    nuiPost('close');
 });
 
 document.getElementById('popup-close').addEventListener('click', () => {
-    const popup = document.getElementById('popup-market');
-    if (popup) popup.classList.remove('active');
-    Sakura.stop();
-    navigator.sendBeacon('https://s82chotroi/close', JSON.stringify({}));
-});
-
-document.addEventListener('keyup', (e) => {
-    if (e.code === 'Escape') {
-        navigator.sendBeacon('https://s82chotroi/close', JSON.stringify({}));
-    }
+    nuiPost('popup-close');
 });
